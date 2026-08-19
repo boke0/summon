@@ -1,0 +1,66 @@
+#!/bin/bash
+set -euo pipefail
+
+here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+root=$(CDPATH= cd -- "$here/.." && pwd)
+
+json=$(cat)
+parsed=$(printf '%s' "$json" | /usr/bin/osascript -l JavaScript "$root/lib/parse-candidate.jxa")
+kind="${parsed%%$'\t'*}"
+rest="${parsed#*$'\t'}"
+
+if [[ -n "${SUMMON_APPS_DRY_RUN:-}" ]]; then
+	printf '%s\n' "$parsed"
+	exit 0
+fi
+
+open_app() {
+	local path=$1
+	[[ -n "$path" && -e "$path" ]] || {
+		printf '%s\n' "candidate is missing an app path" >&2
+		exit 1
+	}
+	/usr/bin/open "$path"
+}
+
+raise_window() {
+	local path=$1 pid=$2 title=$3
+	if [[ -n "$pid" ]]; then
+		/usr/bin/osascript >/dev/null 2>&1 <<APPLESCRIPT || true
+tell application "System Events"
+	if exists (first process whose unix id is ${pid}) then
+		tell (first process whose unix id is ${pid})
+			set frontmost to true
+			if "${title}" is not "" then
+				try
+					perform action "AXRaise" of window "${title}"
+				end try
+			end if
+		end tell
+	end if
+end tell
+APPLESCRIPT
+		if /usr/bin/osascript -e "tell application \"System Events\" to exists (first process whose unix id is ${pid})" 2>/dev/null | /usr/bin/grep -q true; then
+			return 0
+		fi
+	fi
+	open_app "$path"
+}
+
+case "$kind" in
+app)
+	open_app "$rest"
+	;;
+window)
+	path="${rest%%$'\t'*}"
+	rest="${rest#*$'\t'}"
+	pid="${rest%%$'\t'*}"
+	rest="${rest#*$'\t'}"
+	title="${rest%%$'\t'*}"
+	raise_window "$path" "$pid" "$title"
+	;;
+*)
+	printf '%s\n' "unknown candidate kind ${kind}" >&2
+	exit 1
+	;;
+esac

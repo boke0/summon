@@ -1,0 +1,124 @@
+import Foundation
+import SummonKit
+
+enum PluginProcessError: Error, Sendable {
+    case missingExecutable(URL)
+    case invalidJSON(Error)
+}
+
+enum PluginProcess {
+    struct Output: Sendable {
+        var data: Data
+        var status: Int32
+    }
+
+    static func search(plugin: LoadedPlugin, query: String) async throws -> [Candidate] {
+        let output = try await run(
+            executable: plugin.searchExecutable,
+            arguments: plugin.searchArguments + [query],
+            currentDirectory: plugin.directory,
+            stdin: nil
+        )
+        if Task.isCancelled { throw CancellationError() }
+        let trimmed = output.data.trimmingUTF8Whitespace
+        if trimmed.isEmpty {
+            return []
+        }
+        do {
+            return try CandidateJSON.decodeSearchResponse(from: trimmed).items
+        } catch {
+            throw PluginProcessError.invalidJSON(error)
+        }
+    }
+
+    static func action(plugin: LoadedPlugin, candidate: Candidate) async throws -> Int32 {
+        let stdin = try CandidateJSON.encode(candidate)
+        let output = try await run(
+            executable: plugin.actionExecutable,
+            arguments: plugin.actionArguments,
+            currentDirectory: plugin.directory,
+            stdin: stdin
+        )
+        if Task.isCancelled { throw CancellationError() }
+        return output.status
+    }
+
+    static func run(
+        executable: URL,
+        arguments: [String],
+        currentDirectory: URL,
+        stdin: Data?
+    ) async throws -> Output {
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+            throw PluginProcessError.missingExecutable(executable)
+        }
+
+        let box = ProcessBox()
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                let process = Process()
+                process.executableURL = executable
+                process.arguments = arguments
+                process.currentDirectoryURL = currentDirectory
+
+                let stdout = Pipe()
+                let stdinPipe = Pipe()
+                process.standardOutput = stdout
+                process.standardInput = stdinPipe
+                process.standardError = FileHandle.standardError
+
+                box.process = process
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
+
+                try process.run()
+                if let stdin {
+                    try stdinPipe.fileHandleForWriting.write(contentsOf: stdin)
+                }
+                try stdinPipe.fileHandleForWriting.close()
+
+                let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
+                return Output(data: data, status: process.terminationStatus)
+            }.value
+        } onCancel: {
+            box.terminate()
+        }
+    }
+}
+
+private final class ProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var inner: Process?
+
+    var process: Process? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return inner
+        }
+        set {
+            lock.lock()
+            inner = newValue
+            lock.unlock()
+        }
+    }
+
+    func terminate() {
+        lock.lock()
+        let process = inner
+        lock.unlock()
+        process?.terminate()
+    }
+}
+
+private extension Data {
+    var trimmingUTF8Whitespace: Data {
+        guard let string = String(data: self, encoding: .utf8) else { return self }
+        return Data(string.trimmingCharacters(in: .whitespacesAndNewlines).utf8)
+    }
+}

@@ -1,0 +1,134 @@
+#!/bin/bash
+set -euo pipefail
+
+here=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+root=$(CDPATH= cd -- "$here/.." && pwd)
+# shellcheck source=../lib/constants.sh
+source "$root/lib/constants.sh"
+match="$root/lib/match.sh"
+
+json=$(cat)
+kind_path=$(printf '%s' "$json" | /usr/bin/osascript -l JavaScript "$root/lib/parse-candidate.jxa")
+kind="${kind_path%%$'\t'*}"
+path="${kind_path#*$'\t'}"
+
+if [[ -n "${SUMMON_CURSOR_DRY_RUN:-}" ]]; then
+	case "$kind" in
+	workspace)
+		printf '%s\n' "--classic $path"
+		printf '%s\n' "$CURSOR_CLI"
+		;;
+	agents)
+		printf '%s\n' "agents"
+		printf '%s\n' "${CURSOR_AGENTS_MENUS[@]}"
+		;;
+	*)
+		printf '%s\n' "unknown kind: $kind" >&2
+		exit 1
+		;;
+	esac
+	exit 0
+fi
+
+click_cursor_menu() {
+	local menu=$1 item=$2
+	/usr/bin/osascript -e \
+		"tell application \"System Events\" to tell application process \"Cursor\" to click menu item \"${item}\" of menu \"${menu}\" of menu bar 1" \
+		>/dev/null 2>&1
+}
+
+cursor_window_titles() {
+	/usr/bin/osascript <<'APPLESCRIPT'
+tell application "System Events"
+	tell application process "Cursor"
+		set xs to {}
+		repeat with w in windows
+			set end of xs to name of w
+		end repeat
+		set AppleScript's text item delimiters to linefeed
+		return xs as text
+	end tell
+end tell
+APPLESCRIPT
+}
+
+raise_cursor_window() {
+	local needle=$1
+	local titles title
+	titles=$(cursor_window_titles) || return 1
+	while IFS= read -r title; do
+		[[ -z "$title" ]] && continue
+		if /bin/bash "$match" should-raise "$title" "$needle"; then
+			/usr/bin/osascript -e \
+				"tell application \"System Events\" to tell application process \"Cursor\" to perform action \"AXRaise\" of window \"${title}\"" \
+				>/dev/null 2>&1 || true
+			/usr/bin/osascript -e \
+				"tell application id \"${CURSOR_BUNDLE_ID}\" to activate" \
+				>/dev/null 2>&1 || true
+			return 0
+		fi
+	done <<< "$titles"
+	return 1
+}
+
+open_workspace() {
+	[[ -d "$path" ]] || {
+		printf '%s\n' "Workspace folder was not found: $path" >&2
+		exit 1
+	}
+	[[ -x "$CURSOR_CLI" ]] || {
+		printf '%s\n' "Cursor was not found at $CURSOR_APP." >&2
+		exit 1
+	}
+	"$CURSOR_CLI" --classic "$path" >/dev/null 2>&1 || {
+		printf '%s\n' "Could not open workspace in Cursor." >&2
+		exit 1
+	}
+	local name attempt
+	name=$(basename "$path")
+	for attempt in $(/usr/bin/seq 1 "$CURSOR_RAISE_RETRY"); do
+		if raise_cursor_window "$name"; then
+			return 0
+		fi
+		if [[ "$attempt" -lt "$CURSOR_RAISE_RETRY" ]]; then
+			sleep "$CURSOR_MENU_INTERVAL"
+		fi
+	done
+}
+
+open_agents() {
+	[[ -d "$CURSOR_APP" ]] || {
+		printf '%s\n' "Cursor was not found at $CURSOR_APP." >&2
+		exit 1
+	}
+	/usr/bin/open -b "$CURSOR_BUNDLE_ID" >/dev/null 2>&1 || true
+	local attempt pair menu item
+	for attempt in $(/usr/bin/seq 1 "$CURSOR_MENU_RETRY"); do
+		/usr/bin/osascript -e "tell application id \"${CURSOR_BUNDLE_ID}\" to activate" >/dev/null 2>&1 || true
+		for pair in "${CURSOR_AGENTS_MENUS[@]}"; do
+			menu="${pair%%$'\t'*}"
+			item="${pair#*$'\t'}"
+			if click_cursor_menu "$menu" "$item"; then
+				return 0
+			fi
+		done
+		if [[ "$attempt" -lt "$CURSOR_MENU_RETRY" ]]; then
+			sleep "$CURSOR_MENU_INTERVAL"
+		fi
+	done
+	printf '%s\n' "Could not find Window > Cursor Agents or File > Switch to Agents Window / New Agents Window. Cursor may still be starting, or Accessibility permission is missing." >&2
+	exit 1
+}
+
+case "$kind" in
+workspace)
+	open_workspace
+	;;
+agents)
+	open_agents
+	;;
+*)
+	printf '%s\n' "unknown kind: $kind" >&2
+	exit 1
+	;;
+esac

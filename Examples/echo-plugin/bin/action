@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+out="${SUMMON_ECHO_ACTION_OUT:-/tmp/summon-echo-last-action.json}"
+cat > "$out"
+exit 0

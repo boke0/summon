@@ -1,0 +1,6 @@
+{
+  "name": "apps",
+  "title": "Apps",
+  "search": ["bin/search"],
+  "action": ["bin/action"]
+}

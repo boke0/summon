@@ -1,0 +1,6 @@
+{
+  "name": "echo",
+  "title": "Echo",
+  "search": ["bin/search"],
+  "action": ["bin/action"]
+}

@@ -1,0 +1,113 @@
+#!/bin/bash
+set -euo pipefail
+
+# Lists project folders one level under $HOME/@*/ (or SUMMON_CURSOR_WORKSPACE_DIR)
+# and prints a SearchResponse JSON. Filter is case-insensitive substring on title.
+
+ICON="/Applications/Cursor.app"
+ROOT="${SUMMON_CURSOR_WORKSPACE_DIR:-$HOME}"
+QUERY="${1-}"
+
+json_escape() {
+	local s=$1
+	s=${s//\\/\\\\}
+	s=${s//\"/\\\"}
+	s=${s//$'\n'/\\n}
+	s=${s//$'\r'/\\r}
+	s=${s//$'\t'/\\t}
+	printf '%s' "$s"
+}
+
+workspace_item() {
+	local title=$1 path=$2
+	printf '{"icon":"%s","id":"%s","payload":{"kind":"workspace","path":"%s"},"subtitle":"%s","title":"%s"}' \
+		"$(json_escape "$ICON")" \
+		"$(json_escape "$path")" \
+		"$(json_escape "$path")" \
+		"$(json_escape "$path")" \
+		"$(json_escape "$title")"
+}
+
+agents_item() {
+	printf '{"icon":"%s","id":"agents","payload":{"kind":"agents"},"subtitle":"%s","title":"Agents"}' \
+		"$(json_escape "$ICON")" \
+		"$(json_escape "Open Agents window")"
+}
+
+title_matches() {
+	local title=$1
+	[[ -z "$QUERY" ]] && return 0
+	printf '%s\n' "$title" | /usr/bin/grep -qiF -- "$QUERY" && return 0
+	return 1
+}
+
+shopt -s nullglob
+
+titles=()
+paths=()
+
+for org in "$ROOT"/@*; do
+	[[ -d "$org" ]] || continue
+	org_name=$(basename "$org")
+	case "$org_name" in
+	@*) ;;
+	*) continue ;;
+	esac
+	for proj in "$org"/*; do
+		[[ -d "$proj" ]] || continue
+		name=$(basename "$proj")
+		title="$org_name/$name"
+		abs=$(CDPATH= cd -- "$proj" && pwd)
+		titles+=("$title")
+		paths+=("$abs")
+	done
+done
+
+if ((${#titles[@]} > 0)); then
+	sorted=$(printf '%s\n' "${titles[@]}" | LC_ALL=C /usr/bin/sort)
+	old_titles=("${titles[@]}")
+	old_paths=("${paths[@]}")
+	titles=()
+	paths=()
+	while IFS= read -r title; do
+		[[ -z "$title" ]] && continue
+		i=0
+		for old in "${old_titles[@]}"; do
+			if [[ "$old" == "$title" ]]; then
+				titles+=("$title")
+				paths+=("${old_paths[$i]}")
+				break
+			fi
+			i=$((i + 1))
+		done
+	done <<< "$sorted"
+fi
+
+items=()
+if ((${#titles[@]} > 0)); then
+	i=0
+	for title in "${titles[@]}"; do
+		if title_matches "$title"; then
+			items+=("$(workspace_item "$title" "${paths[$i]}")")
+		fi
+		i=$((i + 1))
+	done
+fi
+
+if title_matches "Agents"; then
+	items+=("$(agents_item)")
+fi
+
+printf '{"items":['
+first=1
+if ((${#items[@]} > 0)); then
+	for item in "${items[@]}"; do
+		if ((first)); then
+			first=0
+		else
+			printf ','
+		fi
+		printf '%s' "$item"
+	done
+fi
+printf ']}\n'

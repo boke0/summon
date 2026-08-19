@@ -1,0 +1,226 @@
+#!/bin/bash
+set -euo pipefail
+
+QUERY="${1-}"
+
+json_escape() {
+	local s=$1
+	s=${s//\\/\\\\}
+	s=${s//\"/\\\"}
+	s=${s//$'\n'/\\n}
+	s=${s//$'\r'/\\r}
+	s=${s//$'\t'/\\t}
+	printf '%s' "$s"
+}
+
+prefix_matches() {
+	local text=$1 query=$2
+	[[ -z "$query" ]] && return 0
+	local lt lq
+	lt=$(printf '%s' "$text" | /usr/bin/tr '[:upper:]' '[:lower:]')
+	lq=$(printf '%s' "$query" | /usr/bin/tr '[:upper:]' '[:lower:]')
+	case "$lt" in
+	"$lq"*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+app_display_name() {
+	local app=$1 name
+	name=$(/usr/bin/defaults read "$app/Contents/Info" CFBundleDisplayName 2>/dev/null || true)
+	if [[ -z "$name" ]]; then
+		name=$(/usr/bin/defaults read "$app/Contents/Info" CFBundleName 2>/dev/null || true)
+	fi
+	if [[ -z "$name" ]]; then
+		name=$(basename "$app" .app)
+	fi
+	printf '%s' "$name"
+}
+
+app_bundle_id() {
+	/usr/bin/defaults read "$1/Contents/Info" CFBundleIdentifier 2>/dev/null || true
+}
+
+list_roots() {
+	if [[ -n "${SUMMON_APPS_ROOTS:-}" ]]; then
+		printf '%s\n' "$SUMMON_APPS_ROOTS" | /usr/bin/tr ':' '\n'
+		return
+	fi
+	printf '%s\n' "/Applications"
+	printf '%s\n' "/System/Applications"
+	printf '%s\n' "$HOME/Applications"
+}
+
+scan_apps() {
+	local root app resolved name bid
+	local seen_paths seen_ids
+	seen_paths=$(mktemp)
+	seen_ids=$(mktemp)
+
+	while IFS= read -r root; do
+		[[ -z "$root" || ! -d "$root" ]] && continue
+		while IFS= read -r app; do
+			[[ -z "$app" ]] && continue
+			resolved=$(CDPATH= cd -- "$app" && pwd)
+			if /usr/bin/grep -Fxq -- "$resolved" "$seen_paths"; then
+				continue
+			fi
+			printf '%s\n' "$resolved" >> "$seen_paths"
+			bid=$(app_bundle_id "$app")
+			if [[ -n "$bid" ]] && /usr/bin/grep -Fxq -- "$bid" "$seen_ids"; then
+				continue
+			fi
+			if [[ -n "$bid" ]]; then
+				printf '%s\n' "$bid" >> "$seen_ids"
+			fi
+			name=$(app_display_name "$app")
+			printf '%s\t%s\t%s\n' "$name" "$app" "$bid"
+		done < <(/usr/bin/find "$root" -name '*.app' -type d -print -prune 2>/dev/null)
+	done < <(list_roots)
+
+	rm -f "$seen_paths" "$seen_ids"
+}
+
+app_item() {
+	local name=$1 path=$2 bid=$3
+	if [[ -n "$bid" ]]; then
+		printf '{"icon":"%s","id":"app:%s","payload":{"bundleId":"%s","kind":"app","path":"%s"},"subtitle":"%s","title":"%s"}' \
+			"$(json_escape "$path")" \
+			"$(json_escape "$path")" \
+			"$(json_escape "$bid")" \
+			"$(json_escape "$path")" \
+			"$(json_escape "$path")" \
+			"$(json_escape "$name")"
+	else
+		printf '{"icon":"%s","id":"app:%s","payload":{"kind":"app","path":"%s"},"subtitle":"%s","title":"%s"}' \
+			"$(json_escape "$path")" \
+			"$(json_escape "$path")" \
+			"$(json_escape "$path")" \
+			"$(json_escape "$path")" \
+			"$(json_escape "$name")"
+	fi
+}
+
+window_item() {
+	local name=$1 path=$2 bid=$3 pid=$4 title=$5 index=$6
+	local display="$name — $title"
+	if [[ -n "$bid" ]]; then
+		printf '{"icon":"%s","id":"window:%s:%s:%s","payload":{"bundleId":"%s","kind":"window","path":"%s","pid":%s,"windowIndex":%s,"windowTitle":"%s"},"subtitle":"%s","title":"%s"}' \
+			"$(json_escape "$path")" \
+			"$(json_escape "$pid")" \
+			"$(json_escape "$index")" \
+			"$(json_escape "$title")" \
+			"$(json_escape "$bid")" \
+			"$(json_escape "$path")" \
+			"$pid" \
+			"$index" \
+			"$(json_escape "$title")" \
+			"$(json_escape "$path")" \
+			"$(json_escape "$display")"
+	else
+		printf '{"icon":"%s","id":"window:%s:%s:%s","payload":{"kind":"window","path":"%s","pid":%s,"windowIndex":%s,"windowTitle":"%s"},"subtitle":"%s","title":"%s"}' \
+			"$(json_escape "$path")" \
+			"$(json_escape "$pid")" \
+			"$(json_escape "$index")" \
+			"$(json_escape "$title")" \
+			"$(json_escape "$path")" \
+			"$pid" \
+			"$index" \
+			"$(json_escape "$title")" \
+			"$(json_escape "$path")" \
+			"$(json_escape "$display")"
+	fi
+}
+
+running_bundle_pids() {
+	/usr/bin/osascript <<'APPLESCRIPT' 2>/dev/null || true
+tell application "System Events"
+	set xs to {}
+	repeat with p in application processes
+		try
+			set bid to bundle identifier of p
+			set uid to unix id of p
+			if bid is not missing value and bid is not "" then
+				set end of xs to bid & tab & uid
+			end if
+		end try
+	end repeat
+	set AppleScript's text item delimiters to linefeed
+	return xs as text
+end tell
+APPLESCRIPT
+}
+
+pids_for_bundle() {
+	local bid=$1
+	[[ -z "$bid" || -z "$running" ]] && return 0
+	/usr/bin/awk -F '\t' -v bid="$bid" '$1 == bid { print $2 }' "$running"
+}
+
+list_window_titles() {
+	local pid=$1
+	/usr/bin/osascript <<APPLESCRIPT 2>/dev/null || true
+tell application "System Events"
+	if not (exists (first process whose unix id is ${pid})) then return ""
+	tell (first process whose unix id is ${pid})
+		set xs to {}
+		repeat with w in windows
+			try
+				set n to name of w
+				if n is not missing value and n is not "" then set end of xs to n
+			end try
+		end repeat
+		set AppleScript's text item delimiters to linefeed
+		return xs as text
+	end tell
+end tell
+APPLESCRIPT
+}
+
+scanned=$(mktemp)
+running=$(mktemp)
+trap 'rm -f "$scanned" "$running"' EXIT
+scan_apps > "$scanned"
+if [[ -z "${SUMMON_APPS_ROOTS:-}" ]]; then
+	running_bundle_pids > "$running"
+fi
+
+items=()
+while IFS=$'\t' read -r name path bid; do
+	[[ -z "$name" ]] && continue
+	prefix_matches "$name" "$QUERY" || continue
+	items+=("$(app_item "$name" "$path" "$bid")")
+
+	while IFS= read -r pid; do
+		[[ "$pid" =~ ^[0-9]+$ ]] || continue
+		titles=$(list_window_titles "$pid")
+		[[ -z "$titles" ]] && continue
+		count=0
+		while IFS= read -r wtitle; do
+			[[ -z "$wtitle" ]] && continue
+			count=$((count + 1))
+		done <<< "$titles"
+		if [[ "$count" -ge 2 ]]; then
+			index=0
+			while IFS= read -r wtitle; do
+				[[ -z "$wtitle" ]] && continue
+				items+=("$(window_item "$name" "$path" "$bid" "$pid" "$wtitle" "$index")")
+				index=$((index + 1))
+			done <<< "$titles"
+		fi
+	done < <(pids_for_bundle "$bid")
+done < <(LC_ALL=C /usr/bin/sort "$scanned")
+
+printf '{"items":['
+first=1
+if ((${#items[@]} > 0)); then
+	for item in "${items[@]}"; do
+		if ((first)); then
+			first=0
+		else
+			printf ','
+		fi
+		printf '%s' "$item"
+	done
+fi
+printf ']}\n'

@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+query="${1-}"
+
+json_escape() {
+  printf '%s' "$1" | tr '\n\r' '  ' | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+if [ -z "$query" ]; then
+  cat <<'EOF'
+{"items":[{"id":"hello","title":"Hello","subtitle":"Sample item","payload":{"text":"hello"}},{"id":"world","title":"World","subtitle":"Sample item","payload":{"text":"world"}}]}
+EOF
+else
+  q=$(json_escape "$query")
+  printf '{"items":[{"id":"echo","title":"%s","subtitle":"Echo back your query","payload":{"text":"%s"}}]}\n' "$q" "$q"
+fi

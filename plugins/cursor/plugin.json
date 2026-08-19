@@ -1,0 +1,6 @@
+{
+  "name": "cursor",
+  "title": "Cursor",
+  "search": ["bin/search"],
+  "action": ["bin/action"]
+}
