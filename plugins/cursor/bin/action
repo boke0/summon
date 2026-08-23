@@ -26,28 +26,20 @@ kind_path=$(printf '%s' "$json" | jq -er '
 kind="${kind_path%%$'\t'*}"
 path="${kind_path#*$'\t'}"
 
-if [[ -n "${SUMMON_CURSOR_DRY_RUN:-}" ]]; then
-	case "$kind" in
-	workspace)
-		printf '%s\n' "--classic $path"
-		printf '%s\n' "$CURSOR_CLI"
-		;;
-	agents)
-		printf '%s\n' "agents"
-		printf '%s\n' "${CURSOR_AGENTS_MENUS[@]}"
-		;;
-	*)
-		printf '%s\n' "unknown kind: $kind" >&2
-		exit 1
-		;;
-	esac
-	exit 0
-fi
+applescript_quote() {
+	local s=$1
+	s=${s//\\/\\\\}
+	s=${s//\"/\\\"}
+	printf '%s' "$s"
+}
 
 click_cursor_menu() {
 	local menu=$1 item=$2
+	local qmenu qitem
+	qmenu=$(applescript_quote "$menu")
+	qitem=$(applescript_quote "$item")
 	/usr/bin/osascript -e \
-		"tell application \"System Events\" to tell application process \"Cursor\" to click menu item \"${item}\" of menu \"${menu}\" of menu bar 1" \
+		"tell application \"System Events\" to tell application process \"Cursor\" to click menu item \"${qitem}\" of menu \"${qmenu}\" of menu bar 1" \
 		>/dev/null 2>&1
 }
 
@@ -66,19 +58,27 @@ end tell
 APPLESCRIPT
 }
 
-raise_cursor_window() {
-	local needle=$1
+raise_named_window() {
+	local title=$1
+	local qtitle
+	qtitle=$(applescript_quote "$title")
+	/usr/bin/osascript >/dev/null 2>&1 <<APPLESCRIPT
+tell application "System Events"
+	tell application process "Cursor"
+		set frontmost to true
+		perform action "AXRaise" of window "${qtitle}"
+	end tell
+end tell
+APPLESCRIPT
+}
+
+focus_existing_agents_window() {
 	local titles title
 	titles=$(cursor_window_titles) || return 1
 	while IFS= read -r title; do
 		[[ -z "$title" ]] && continue
-		if /bin/bash "$match" should-raise "$title" "$needle"; then
-			/usr/bin/osascript -e \
-				"tell application \"System Events\" to tell application process \"Cursor\" to perform action \"AXRaise\" of window \"${title}\"" \
-				>/dev/null 2>&1 || true
-			/usr/bin/osascript -e \
-				"tell application id \"${CURSOR_BUNDLE_ID}\" to activate" \
-				>/dev/null 2>&1 || true
+		if /bin/bash "$match" is-agents "$title"; then
+			raise_named_window "$title"
 			return 0
 		fi
 	done <<< "$titles"
@@ -94,20 +94,14 @@ open_workspace() {
 		printf '%s\n' "Cursor was not found at $CURSOR_APP." >&2
 		exit 1
 	}
+	# --classic opens the folder in the classic IDE, or focuses that IDE
+	# window if it is already open. Do not raise-by-title afterwards:
+	# Cursor 3 window titles are shared with Agents chats, so substring
+	# matching focuses the wrong window.
 	"$CURSOR_CLI" --classic "$path" >/dev/null 2>&1 || {
 		printf '%s\n' "Could not open workspace in Cursor." >&2
 		exit 1
 	}
-	local name attempt
-	name=$(basename "$path")
-	for attempt in $(/usr/bin/seq 1 "$CURSOR_RAISE_RETRY"); do
-		if raise_cursor_window "$name"; then
-			return 0
-		fi
-		if [[ "$attempt" -lt "$CURSOR_RAISE_RETRY" ]]; then
-			sleep "$CURSOR_MENU_INTERVAL"
-		fi
-	done
 }
 
 open_agents() {
@@ -118,7 +112,12 @@ open_agents() {
 	/usr/bin/open -b "$CURSOR_BUNDLE_ID" >/dev/null 2>&1 || true
 	local attempt pair menu item
 	for attempt in $(/usr/bin/seq 1 "$CURSOR_MENU_RETRY"); do
-		/usr/bin/osascript -e "tell application id \"${CURSOR_BUNDLE_ID}\" to activate" >/dev/null 2>&1 || true
+		if focus_existing_agents_window; then
+			return 0
+		fi
+		/usr/bin/osascript >/dev/null 2>&1 \
+			-e 'tell application "System Events" to tell application process "Cursor" to set frontmost to true' \
+			|| true
 		for pair in "${CURSOR_AGENTS_MENUS[@]}"; do
 			menu="${pair%%$'\t'*}"
 			item="${pair#*$'\t'}"
@@ -130,7 +129,7 @@ open_agents() {
 			sleep "$CURSOR_MENU_INTERVAL"
 		fi
 	done
-	printf '%s\n' "Could not find Window > Cursor Agents or File > Switch to Agents Window / New Agents Window. Cursor may still be starting, or Accessibility permission is missing." >&2
+	printf '%s\n' "Could not find or open the Cursor Agents window. Cursor may still be starting, or Accessibility permission is missing." >&2
 	exit 1
 }
 

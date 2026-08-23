@@ -26,11 +26,6 @@ parsed=$(printf '%s' "$json" | jq -er '
 kind="${parsed%%$'\t'*}"
 rest="${parsed#*$'\t'}"
 
-if [[ -n "${SUMMON_APPS_DRY_RUN:-}" ]]; then
-	printf '%s\n' "$parsed"
-	exit 0
-fi
-
 open_app() {
 	local path=$1
 	[[ -n "$path" && -e "$path" ]] || {

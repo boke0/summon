@@ -6,6 +6,28 @@ enum PluginProcessError: Error, Sendable {
     case invalidJSON(Error)
 }
 
+enum PluginProcessEnvironment {
+    /// Drops variables inherited from Cursor's agent/extension-host or from
+    /// plugin test harnesses. Those leaks make action scripts no-op (dry-run)
+    /// or prevent `cursor` from opening a real window.
+    static func sanitized(_ environment: [String: String]) -> [String: String] {
+        environment.filter { key, _ in !isHostOnly(key) }
+    }
+
+    static func isHostOnly(_ key: String) -> Bool {
+        if key.hasPrefix("VSCODE_") { return true }
+        if key.hasPrefix("ELECTRON_") { return true }
+        if key.hasPrefix("SUMMON_"), key.hasSuffix("_DRY_RUN") { return true }
+        switch key {
+        case "CURSOR_AGENT", "CURSOR_LAYOUT", "CURSOR_CONVERSATION_ID",
+             "CURSOR_WORKSPACE_LABEL":
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 enum PluginProcess {
     struct Output: Sendable {
         var data: Data
@@ -60,6 +82,9 @@ enum PluginProcess {
                 process.executableURL = executable
                 process.arguments = arguments
                 process.currentDirectoryURL = currentDirectory
+                process.environment = PluginProcessEnvironment.sanitized(
+                    ProcessInfo.processInfo.environment
+                )
 
                 let stdout = Pipe()
                 let stdinPipe = Pipe()
