@@ -1,36 +1,52 @@
 # Summon
 
-ホットキーで開く、macOS 向けのフローティングランチャです。候補の検索と実行は外部プロセス型プラグインに任せます。
+Summon は、ホットキーで呼び出せる macOS 向けのフローティングランチャーです。候補の検索と実行を外部プロセス型のプラグインに任せることで、用途に応じて機能を追加できます。
 
-コア、動作確認用の echo プラグイン、アプリ起動プラグイン（`apps`）、Cursor ワークスペースプラグイン（`cursor`）までが動きます。
+## 主な機能
 
-## 必要環境
+- ホットキーからすばやく呼び出せるフローティングパネル
+- macOS アプリの検索、起動、ウィンドウ切り替え
+- Cursor プロジェクトの検索と起動
+- Cursor Agents ウィンドウへの切り替え
+- 外部プロセス型プラグインによる機能拡張
 
-- macOS 14 以降（開発は macOS 26 / Swift 6.3）
-- Xcode 付属の Swift ツールチェーン
-- [`jq`](https://jqlang.github.io/jq/)（`brew install jq`。同梱プラグインの action が候補 JSON のパースに使う）
+## 動作環境
 
-## ビルド
+- macOS 14 以降
+- [`jq`](https://jqlang.github.io/jq/)
+- Cursor（`cursor` プラグインを使用する場合）
+
+`jq` は同梱プラグインが候補の JSON を解析するために使用します。Homebrew を利用している場合は、次のコマンドでインストールできます。
 
 ```sh
-swift build && swift test
-Scripts/build-app.sh
-open dist/Summon.app
+brew install jq
 ```
 
-`dist/Summon.app` はメニューバー常駐（Dock には出ません）。バンドル ID は `com.boke0.summon` で、ad-hoc 署名します。
+アプリのウィンドウ切り替えや Cursor Agents の操作には、Summon のアクセシビリティ権限も必要です。権限がない場合は、初回操作時に設定画面を開く案内が表示されます。
 
-## 使い方
+## インストール
 
-1. デフォルトホットキー `cmd+d` でパネルを開く（もう一度押すと閉じる）
-2. 検索欄に入力すると、アクティブタブの search が走ります
-3. `↑` `↓` で候補移動、`Enter` で action、`Esc` で閉じる
-4. `cmd+1` … `cmd+9` でタブ切替（`tabModifier` で変更可）
-5. メニューバーの虫眼鏡 → Open / Quit
+1. [Nightly リリース](https://github.com/boke0/summon/releases/tag/nightly)から `Summon.zip` をダウンロードします。
+2. ZIP を展開し、`Summon.app` をアプリケーションフォルダへ移動します。
+3. `Summon.app` を開きます。
+
+Nightly ビルドは ad hoc 署名で、Notarization は行っていません。macOS に初回起動を止められた場合は、Finder で `Summon.app` を右クリックし、ショートカットメニューから「開く」を選択してください。
+
+ソースコードからビルドする手順は、[開発ガイド](CONTRIBUTING.md)を参照してください。
+
+## 基本操作
+
+1. デフォルトのホットキー `cmd+d` でパネルを開きます。もう一度押すと閉じます。
+2. 検索欄に文字を入力すると、選択中のタブに対応するプラグインが候補を検索します。
+3. `↑` / `↓` で候補を選び、`Enter` で実行します。`Esc` でパネルを閉じます。
+4. `cmd+1` 〜 `cmd+9` でタブを切り替えます。修飾キーは `tabModifier` で変更できます。
+5. メニューバーの虫眼鏡アイコンから、Open または Quit を選択できます。
+
+Summon は起動後もメニューバーに常駐し、Dock には表示されません。
 
 ## 設定
 
-`~/.config/summon/config.json`（無ければデフォルト）:
+設定ファイルは `~/.config/summon/config.json` です。ファイルがない場合は、デフォルト設定を使用します。
 
 ```json
 {
@@ -40,51 +56,41 @@ open dist/Summon.app
 }
 ```
 
-ホットキー例: `cmd+d` / `ctrl+shift+space`。修飾キーは `cmd` `command` `ctrl` `control` `opt` `option` `alt` `shift`。
+ホットキーには、`cmd+d` や `ctrl+shift+space` のような形式を指定します。修飾キーには `cmd`、`command`、`ctrl`、`control`、`opt`、`option`、`alt`、`shift` を使用できます。
 
-設定はパネルを開くときに読み直します。ホットキー本体は、次回ホットキー押下またはメニューの Open のあと新しい組み合わせに付け替わります。
+設定ファイルは、パネルを開くたびに読み直します。ホットキーの変更は、現在のホットキーを次に押したとき、またはメニューバーから Open を選択したときに反映されます。
 
-## プラグイン
+## 同梱プラグイン
 
-契約は [docs/PLUGIN.md](docs/PLUGIN.md) を見てください。
+デフォルトでは、`apps` と `cursor` の2つをタブに表示します。動作確認用の `echo` も同梱していますが、デフォルトのタブには表示しません。
 
-- 同梱: `Summon.app/Contents/Resources/plugins/`
-- ユーザ: `~/.config/summon/plugins/`
+### Apps
 
-同梱プラグインは `echo`（動作確認）、`apps`（アプリ起動）、`cursor`（ワークスペース）です。デフォルトの `tabs` は `apps` / `cursor` です。
-
-## Apps プラグイン
-
-`apps` タブは次の場所の `.app` を再帰的に走査し、表示名の前方一致（大文字小文字無視、1文字から）で絞り込みます。空クエリではスキャンした全アプリを名前順で出します。`.app` バンドルの中は降りません。
+`apps` タブは、次の場所にある `.app` を再帰的に検索します。
 
 - `/Applications`
 - `/System/Applications`
 - `~/Applications`
 
-`icon` は `.app` パスです（コアが `NSWorkspace` で描画）。実行中でウィンドウが複数あるアプリは、`アプリ名 — ウィンドウタイトル` の候補も出します。ウィンドウの列挙とフォーカスにはアクセシビリティ権限が必要で、初回起動時に設定を開く案内が出ます。
+入力した文字と表示名が前方一致するアプリを、大文字と小文字を区別せずに絞り込みます。検索欄が空の場合は、見つかったすべてのアプリを名前順に表示します。`.app` バンドルの内部は検索しません。
 
-```sh
-plugins/apps/bin/search ''
-plugins/apps/bin/search S
-```
+実行中のアプリに複数のウィンドウがある場合は、`アプリ名 — ウィンドウタイトル` という形式の候補も表示します。
 
-## echo プラグインの CLI 確認
+### Cursor
 
-```sh
-Examples/echo-plugin/bin/search ''
-Examples/echo-plugin/bin/search hello
-printf '{"id":"echo","title":"hello","subtitle":"Echo back your query","payload":{"text":"hello"}}' \
-  | Examples/echo-plugin/bin/action
-cat /tmp/summon-echo-last-action.json
-```
+`cursor` タブは、ホームディレクトリ直下にある `@*` ディレクトリを探し、その直下のフォルダをプロジェクトとして列挙します。たとえば `~/@org/project` は、`@org/project` という候補になります。
 
-## Cursor プラグイン
+検索欄が空の場合は、すべてのプロジェクトと **Agents** を表示します。文字を入力すると、候補のタイトルを部分一致で絞り込みます。大文字と小文字は区別しません。
 
-タブ名は `cursor`（`config.json` の `tabs` と一致）。ホーム直下の `@*` ディレクトリの直下フォルダを列挙し、`@組織/プロジェクト` を候補タイトルにします。空クエリでは全プロジェクトに加えて **Agents** を出します。入力ありならタイトルの部分一致（大文字小文字無視、`grep -iF`）で絞り込みます。
+プロジェクトを選択すると、Cursor に同梱された CLI を使って、そのフォルダを開きます。**Agents** を選択すると、Cursor Agents ウィンドウへ切り替えます。
 
-選択したフォルダは Cursor の同梱 CLI（`--classic`）で開きます。Agents は System Events でメニュー **Window > Cursor Agents**（なければ **File > Switch to Agents Window** / **New Agents Window**）をクリックします。Summon にアクセシビリティ権限が必要です。
+## プラグインを追加する
 
-```sh
-plugins/cursor/bin/search ''
-plugins/cursor/bin/search foo
-```
+プラグインは次の場所から読み込みます。
+
+- 同梱プラグイン: `Summon.app/Contents/Resources/plugins/`
+- ユーザープラグイン: `~/.config/summon/plugins/`
+
+同じ名前のプラグインが両方にある場合は、ユーザープラグインを優先します。プラグインの作成方法と入出力仕様については、[プラグイン仕様](docs/PLUGIN.md) を参照してください。
+
+開発やリリースの手順については、[CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。

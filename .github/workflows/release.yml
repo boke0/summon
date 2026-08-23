@@ -1,0 +1,37 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build app
+        run: Scripts/build-app.sh
+
+      - name: Package
+        run: ditto -c -k --keepParent dist/Summon.app dist/Summon.zip
+
+      - name: Publish nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=nightly
+          notes="Built from ${GITHUB_SHA}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/Summon.zip --clobber
+            gh release edit "$tag" --title "Nightly" --notes "$notes" --prerelease --target "$GITHUB_SHA"
+          else
+            gh release create "$tag" dist/Summon.zip \
+              --title "Nightly" \
+              --prerelease \
+              --notes "$notes" \
+              --target "$GITHUB_SHA"
+          fi

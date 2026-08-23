@@ -62,3 +62,17 @@ import Testing
     #expect(manifest.search == ["bin/search"])
     #expect(manifest.action == ["bin/action"])
 }
+
+@Test func cursorPluginManifestOnDisk() throws {
+    let testsDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    let manifestURL = testsDir
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("plugins/cursor/plugin.json")
+    let data = try Data(contentsOf: manifestURL)
+    let manifest = try PluginManifestJSON.decode(from: data)
+    #expect(manifest.name == "cursor")
+    #expect(manifest.title == "Cursor")
+    #expect(manifest.search == ["bin/search"])
+    #expect(manifest.action == ["bin/action"])
+}

@@ -25,16 +25,6 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
-            name: "SummonAppsPluginTests",
-            dependencies: ["SummonKit"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
-            name: "SummonCursorPluginTests",
-            dependencies: ["SummonKit"],
-            swiftSettings: [.swiftLanguageMode(.v6)]
-        ),
-        .testTarget(
             name: "SummonTests",
             dependencies: ["summon", "SummonKit"],
             swiftSettings: [.swiftLanguageMode(.v6)]
