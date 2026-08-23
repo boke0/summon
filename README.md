@@ -8,6 +8,7 @@
 
 - macOS 14 以降（開発は macOS 26 / Swift 6.3）
 - Xcode 付属の Swift ツールチェーン
+- [`jq`](https://jqlang.github.io/jq/)（`brew install jq`。同梱プラグインの action が候補 JSON のパースに使う）
 
 ## ビルド
 

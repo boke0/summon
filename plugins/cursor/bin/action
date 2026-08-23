@@ -7,8 +7,22 @@ root=$(CDPATH= cd -- "$here/.." && pwd)
 source "$root/lib/constants.sh"
 match="$root/lib/match.sh"
 
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+if ! command -v jq >/dev/null 2>&1; then
+	printf '%s\n' "jq is required. Install it with: brew install jq" >&2
+	exit 1
+fi
+
 json=$(cat)
-kind_path=$(printf '%s' "$json" | /usr/bin/osascript -l JavaScript "$root/lib/parse-candidate.jxa")
+kind_path=$(printf '%s' "$json" | jq -er '
+	(.payload.kind // (if .id == "agents" then "agents" else "" end)) as $kind
+	| if $kind == "agents" then "agents\t"
+	elif $kind == "workspace" then
+		(.payload.path // "") as $p
+		| if $p == "" then error("missing path") else "workspace\t\($p)" end
+	elif $kind == "" then error("missing kind")
+	else error("unknown kind \($kind)") end
+')
 kind="${kind_path%%$'\t'*}"
 path="${kind_path#*$'\t'}"
 
