@@ -107,12 +107,13 @@ final class LauncherModel: ObservableObject {
     func confirm() {
         guard let plugin = selectedPlugin, let candidate = selectedCandidate else { return }
         inFlight?.cancel()
+        // Close the key panel first. Leaving it up keeps Summon as the
+        // active app, so plugin window-raise cannot give the target key focus.
+        onRequestClose?()
         inFlight = Task { @MainActor in
             do {
                 let status = try await PluginProcess.action(plugin: plugin, candidate: candidate)
-                if status == 0 {
-                    self.onRequestClose?()
-                } else {
+                if status != 0 {
                     NSLog("summon: action exited with status %d", status)
                 }
             } catch is CancellationError {

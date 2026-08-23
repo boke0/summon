@@ -58,7 +58,9 @@ end tell
 APPLESCRIPT
 }
 
-raise_named_window() {
+# AXRaise only changes z-order. Cursor's Electron windows stay unfocused
+# (AXFocusedUIElement is missing) until the content group is clicked.
+focus_cursor_window() {
 	local title=$1
 	local qtitle
 	qtitle=$(applescript_quote "$title")
@@ -66,7 +68,26 @@ raise_named_window() {
 tell application "System Events"
 	tell application process "Cursor"
 		set frontmost to true
-		perform action "AXRaise" of window "${qtitle}"
+		set target to missing value
+		if "${qtitle}" is "" then
+			try
+				set target to first window whose value of attribute "AXMain" is true
+			end try
+		else
+			try
+				set target to window "${qtitle}"
+			end try
+		end if
+		if target is missing value then error "no window"
+		tell target
+			perform action "AXRaise"
+			try
+				set value of attribute "AXMain" to true
+			end try
+			try
+				click group 1
+			end try
+		end tell
 	end tell
 end tell
 APPLESCRIPT
@@ -78,7 +99,7 @@ focus_existing_agents_window() {
 	while IFS= read -r title; do
 		[[ -z "$title" ]] && continue
 		if /bin/bash "$match" is-agents "$title"; then
-			raise_named_window "$title"
+			focus_cursor_window "$title"
 			return 0
 		fi
 	done <<< "$titles"
@@ -94,14 +115,24 @@ open_workspace() {
 		printf '%s\n' "Cursor was not found at $CURSOR_APP." >&2
 		exit 1
 	}
-	# --classic opens the folder in the classic IDE, or focuses that IDE
-	# window if it is already open. Do not raise-by-title afterwards:
-	# Cursor 3 window titles are shared with Agents chats, so substring
-	# matching focuses the wrong window.
+	# --classic opens the folder in the classic IDE, or brings that IDE
+	# window to the front if it is already open. Do not match other
+	# windows by folder-name substring: Cursor 3 Agents chats share
+	# that title pattern.
 	"$CURSOR_CLI" --classic "$path" >/dev/null 2>&1 || {
 		printf '%s\n' "Could not open workspace in Cursor." >&2
 		exit 1
 	}
+	# --classic makes the IDE window main but does not give it key focus.
+	local attempt
+	for attempt in $(/usr/bin/seq 1 5); do
+		if focus_cursor_window ""; then
+			return 0
+		fi
+		if [[ "$attempt" -lt 5 ]]; then
+			sleep "$CURSOR_MENU_INTERVAL"
+		fi
+	done
 }
 
 open_agents() {
@@ -122,6 +153,7 @@ open_agents() {
 			menu="${pair%%$'\t'*}"
 			item="${pair#*$'\t'}"
 			if click_cursor_menu "$menu" "$item"; then
+				focus_existing_agents_window || focus_cursor_window ""
 				return 0
 			fi
 		done
