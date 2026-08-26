@@ -58,12 +58,21 @@ end tell
 APPLESCRIPT
 }
 
-# AXRaise only changes z-order. Cursor's Electron windows stay unfocused
+# AXRaise only changes z-order. Classic IDE windows stay unfocused
 # (AXFocusedUIElement is missing) until the content group is clicked.
+# Do not click Agents content: group 1 is the whole glass UI, so a click
+# hits a home-screen card and brings a different Cursor window forward.
 focus_cursor_window() {
 	local title=$1
-	local qtitle
+	local click_content=${2:-1}
+	local qtitle click_block=""
 	qtitle=$(applescript_quote "$title")
+	if [[ "$click_content" == 1 ]]; then
+		click_block='
+			try
+				click group 1
+			end try'
+	fi
 	/usr/bin/osascript >/dev/null 2>&1 <<APPLESCRIPT
 tell application "System Events"
 	tell application process "Cursor"
@@ -83,10 +92,7 @@ tell application "System Events"
 			perform action "AXRaise"
 			try
 				set value of attribute "AXMain" to true
-			end try
-			try
-				click group 1
-			end try
+			end try${click_block}
 		end tell
 	end tell
 end tell
@@ -99,7 +105,7 @@ focus_existing_agents_window() {
 	while IFS= read -r title; do
 		[[ -z "$title" ]] && continue
 		if /bin/bash "$match" is-agents "$title"; then
-			focus_cursor_window "$title"
+			focus_cursor_window "$title" 0
 			return 0
 		fi
 	done <<< "$titles"
@@ -153,7 +159,7 @@ open_agents() {
 			menu="${pair%%$'\t'*}"
 			item="${pair#*$'\t'}"
 			if click_cursor_menu "$menu" "$item"; then
-				focus_existing_agents_window || focus_cursor_window ""
+				focus_existing_agents_window || focus_cursor_window "" 0
 				return 0
 			fi
 		done

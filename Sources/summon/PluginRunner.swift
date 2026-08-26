@@ -92,12 +92,7 @@ enum PluginProcess {
                 process.standardInput = stdinPipe
                 process.standardError = FileHandle.standardError
 
-                box.process = process
-                if Task.isCancelled {
-                    throw CancellationError()
-                }
-
-                try process.run()
+                try box.launch(process)
                 if let stdin {
                     try stdinPipe.fileHandleForWriting.write(contentsOf: stdin)
                 }
@@ -116,28 +111,29 @@ enum PluginProcess {
     }
 }
 
-private final class ProcessBox: @unchecked Sendable {
+final class ProcessBox: @unchecked Sendable {
     private let lock = NSLock()
     private var inner: Process?
+    private var cancelled = false
 
-    var process: Process? {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return inner
+    func launch(_ process: Process) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled else {
+            throw CancellationError()
         }
-        set {
-            lock.lock()
-            inner = newValue
-            lock.unlock()
-        }
+        try process.run()
+        inner = process
     }
 
     func terminate() {
         lock.lock()
+        cancelled = true
         let process = inner
         lock.unlock()
-        process?.terminate()
+        if process?.isRunning == true {
+            process?.terminate()
+        }
     }
 }
 

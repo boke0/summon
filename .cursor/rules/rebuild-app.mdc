@@ -1,0 +1,10 @@
+---
+description: Rebuild Summon.app after code or plugin changes
+alwaysApply: true
+---
+
+# Rebuild the app bundle
+
+After changing Swift sources, bundled plugins, or anything that ships inside `Summon.app`, run `Scripts/build-app.sh` before finishing. Do not only leave source-tree changes.
+
+If `dist/Summon.app` is running, quit it, rebuild, then open the new bundle so the running app matches the tree.
