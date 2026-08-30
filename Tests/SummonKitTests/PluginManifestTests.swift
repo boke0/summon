@@ -76,3 +76,17 @@ import Testing
     #expect(manifest.search == ["bin/search"])
     #expect(manifest.action == ["bin/action"])
 }
+
+@Test func regexPluginManifestOnDisk() throws {
+    let testsDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    let manifestURL = testsDir
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("plugins/regex/plugin.json")
+    let data = try Data(contentsOf: manifestURL)
+    let manifest = try PluginManifestJSON.decode(from: data)
+    #expect(manifest.name == "regex")
+    #expect(manifest.title == "Regex")
+    #expect(manifest.search == ["bin/search"])
+    #expect(manifest.action == ["bin/action"])
+}

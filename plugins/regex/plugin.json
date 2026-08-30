@@ -1,0 +1,6 @@
+{
+  "name": "regex",
+  "title": "Regex",
+  "search": ["bin/search"],
+  "action": ["bin/action"]
+}

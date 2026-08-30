@@ -7,6 +7,7 @@ Summon のビルド、テスト、リリースに関するメンテナー向け�
 - macOS 14 以降
 - Xcode に付属する Swift ツールチェーン
 - [`jq`](https://jqlang.github.io/jq/)
+- Python 3（`regex` プラグイン）
 
 現在の開発環境は macOS 26 / Swift 6.3 です。Homebrew を利用している場合は、次のコマンドで `jq` をインストールできます。
 
@@ -37,6 +38,7 @@ open dist/Summon.app
 - `Examples/echo-plugin`
 - `plugins/apps`
 - `plugins/cursor`
+- `plugins/regex`
 
 ## Nightly リリース
 

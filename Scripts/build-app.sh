@@ -59,19 +59,21 @@ rsync -a --delete --exclude '.DS_Store' \
 	"$APP/Contents/Resources/plugins/echo/"
 chmod +x "$APP/Contents/Resources/plugins/echo/bin/"*
 
-# apps and cursor are bash plugins (no Swift binary).
-# plugin.json uses ["bin/search"] with CWD = the plugin directory.
-install_shell_plugin() {
+# Bundled plugins (bash or shebang Python). plugin.json uses ["bin/search"]
+# with CWD = the plugin directory.
+install_plugin() {
 	local name="$1"
 	local dest="$APP/Contents/Resources/plugins/$name"
 	rm -rf "$dest"
 	mkdir -p "$dest"
-	rsync -a --exclude '.DS_Store' "$ROOT/plugins/$name/" "$dest/"
+	rsync -a --exclude '.DS_Store' --exclude '__pycache__' --exclude '*.pyc' \
+		"$ROOT/plugins/$name/" "$dest/"
 	chmod +x "$dest/bin/"*
 }
 
-install_shell_plugin apps
-install_shell_plugin cursor
+install_plugin apps
+install_plugin cursor
+install_plugin regex
 codesign --force --sign - --identifier "$BUNDLE_ID" "$APP/Contents/MacOS/Summon"
 codesign --force --sign - --identifier "$BUNDLE_ID" "$APP"
 

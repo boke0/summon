@@ -88,7 +88,7 @@ public enum PluginLoader {
 public enum PluginResolver {
     /// Applies `config.tabs` as an ordered filter. If none of those names are loaded,
     /// falls back to every loaded plugin sorted by name (so a sample plugin still appears
-    /// when the default `apps`/`cursor` tabs are not installed yet).
+    /// when the default tabs are not installed yet).
     public static func tabs(from loaded: [LoadedPlugin], orderedBy names: [String]) -> [LoadedPlugin] {
         let byName = Dictionary(
             loaded.map { ($0.manifest.name, $0) },

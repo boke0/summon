@@ -17,7 +17,7 @@ import Testing
     #expect(config == .default)
     #expect(config.hotkey == "cmd+d")
     #expect(config.tabModifier == "cmd")
-    #expect(config.tabs == ["apps", "cursor"])
+    #expect(config.tabs == ["apps", "cursor", "regex"])
 }
 
 @Test func loadMissingFileReturnsDefault() {

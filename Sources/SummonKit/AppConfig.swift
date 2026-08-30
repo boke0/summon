@@ -8,7 +8,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public static let `default` = AppConfig(
         hotkey: "cmd+d",
         tabModifier: "cmd",
-        tabs: ["apps", "cursor"]
+        tabs: ["apps", "cursor", "regex"]
     )
 
     public init(

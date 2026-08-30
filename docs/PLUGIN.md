@@ -78,7 +78,7 @@ summon のプラグインは、マニフェスト付きのディレクトリで�
 {
   "hotkey": "cmd+d",
   "tabModifier": "cmd",
-  "tabs": ["apps", "cursor"]
+  "tabs": ["apps", "cursor", "regex"]
 }
 ```
 
