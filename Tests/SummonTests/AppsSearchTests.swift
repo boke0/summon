@@ -89,6 +89,31 @@ private enum AppsPlugin {
     #expect(!bundleNames.contains("Helper.app"))
 }
 
+// Unity Hub installs editors as <root>/Unity/Hub/Editor/<ver>/Unity.app next to
+// huge non-bundle trees (PlaybackEngines, Android SDK); walking them unbounded
+// made search take ~10s. Depth 5 keeps Unity.app but stops the deep walk.
+@Test func scanStopsAtBoundedDepth() throws {
+    let fileManager = FileManager.default
+    let root = fileManager.temporaryDirectory
+        .appendingPathComponent("summon-apps-depth-\(UUID().uuidString)", isDirectory: true)
+    defer { try? fileManager.removeItem(at: root) }
+    for path in [
+        "Unity/Hub/Editor/2022.3/Unity.app",
+        "Unity/Hub/Editor/2022.3/PlaybackEngines/AndroidPlayer/SDK/monitor.app",
+    ] {
+        try fileManager.createDirectory(
+            at: root.appendingPathComponent(path, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+    }
+
+    let decoded = try AppsPlugin.search(query: "", roots: root)
+    let bundleNames = Set(
+        decoded.items.map { URL(fileURLWithPath: $0.subtitle ?? $0.id).lastPathComponent }
+    )
+    #expect(bundleNames == ["Unity.app"])
+}
+
 @Test func appsPrefixFilterIsCaseInsensitiveAndAnchored() throws {
     let root = try AppsPlugin.makeFixture()
     defer { try? FileManager.default.removeItem(at: root) }
