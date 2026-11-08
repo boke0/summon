@@ -3,6 +3,7 @@ set -euo pipefail
 
 QUERY="${1-}"
 
+# Sets ESCAPED instead of printing, so callers avoid a $(...) subshell per field.
 json_escape() {
 	local s=$1
 	s=${s//\\/\\\\}
@@ -10,7 +11,7 @@ json_escape() {
 	s=${s//$'\n'/\\n}
 	s=${s//$'\r'/\\r}
 	s=${s//$'\t'/\\t}
-	printf '%s' "$s"
+	ESCAPED=$s
 }
 
 list_roots() {
@@ -23,6 +24,10 @@ list_roots() {
 	printf '%s\n' "$HOME/Applications"
 }
 
+# Deep enough for <root>/Unity/Hub/Editor/<ver>/Unity.app, shallow enough to
+# skip huge non-bundle trees (Unity PlaybackEngines, SDKs) that took ~10s to walk.
+MAX_DEPTH=5
+
 # name<TAB>path — one find pass, no defaults / osascript per app.
 scan_apps() {
 	local root app resolved name
@@ -31,20 +36,20 @@ scan_apps() {
 		while IFS= read -r app; do
 			[[ -z "$app" ]] && continue
 			resolved=$(CDPATH= cd -- "$app" && pwd)
-			name=$(basename "$resolved" .app)
+			# Parameter expansion, not basename: exec is costly per app on some Macs.
+			name=${resolved##*/}
+			name=${name%.app}
 			printf '%s\t%s\n' "$name" "$resolved"
-		done < <(/usr/bin/find "$root" -name '*.app' -type d -print -prune 2>/dev/null)
+		done < <(/usr/bin/find "$root" -maxdepth "$MAX_DEPTH" -type d -name '*.app' -print -prune 2>/dev/null)
 	done < <(list_roots)
 }
 
 app_item() {
-	local name=$1 path=$2
+	local name path
+	json_escape "$1"; name=$ESCAPED
+	json_escape "$2"; path=$ESCAPED
 	printf '{"icon":"%s","id":"app:%s","payload":{"kind":"app","path":"%s"},"subtitle":"%s","title":"%s"}' \
-		"$(json_escape "$path")" \
-		"$(json_escape "$path")" \
-		"$(json_escape "$path")" \
-		"$(json_escape "$path")" \
-		"$(json_escape "$name")"
+		"$path" "$path" "$path" "$path" "$name"
 }
 
 grep_escape() {
@@ -73,6 +78,6 @@ while IFS=$'\t' read -r name path; do
 	else
 		printf ','
 	fi
-	printf '%s' "$(app_item "$name" "$path")"
+	app_item "$name" "$path"
 done < "$matched"
 printf ']}\n'
